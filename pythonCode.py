@@ -1,43 +1,49 @@
 import os
 import time
-import requests
+import subprocess
+from shutil import move
 
-# Folder where the camera saves the pictures
-SOURCE_FOLDER = "/home/ashrafu/Documents/EMBEDDED_SYS"
+SOURCE_DIR = "/home/ashrafu/Documents/EMBEDDED_SYS"
+DEST_DIR = os.path.join(SOURCE_DIR, "uploaded")
+UPLOAD_ENDPOINT = "https://projects.benax.rw/f/o/r/e/a/c/h/p/r/o/j/e/c/t/s/4e8d42b606f70fa9d39741a93ed0356c/iot_testing_202501/upload.php"
 
-# Upload endpoint
-UPLOAD_URL = "https://projects.benax.rw/f/o/r/e/a/c/h/p/r/o/j/e/c/t/s/4e8d42b606f70fa9d39741a93ed0356c/iot_testing_202501/upload.php"
+os.makedirs(os.path.normpath(DEST_DIR), exist_ok=True)
 
-# Function to upload a file
-def upload_file(filepath):
+def upload_image(image_path):
     try:
-        with open(filepath, "rb") as file:
-            files = {"imageFile": file}
-            response = requests.post(UPLOAD_URL, files=files)
-            if response.status_code == 200:
-                print(f"Successfully uploaded: {os.path.basename(filepath)}")
-                return True
-            else:
-                print(f"Failed to upload: {os.path.basename(filepath)}. Status Code: {response.status_code}")
-                return False
+        result = subprocess.run(
+            ["curl", "-X", "POST", "-F", f"imageFile=@{image_path}", UPLOAD_ENDPOINT],
+            capture_output=True,
+            text=True
+        )
+        print(f"stdout: {result.stdout}")
+        print(f"stderr: {result.stderr}")
+        print(f"Return code: {result.returncode}")
+        
+        if result.returncode == 0 and "200" in result.stdout:
+            print(f"Upload successful: {image_path}")
+            return True
+        else:
+            print(f"Upload failed for {image_path}.")
+            return False
     except Exception as e:
-        print(f"Error uploading file {os.path.basename(filepath)}: {e}")
+        print(f"Error during upload for {image_path}: {e}")
         return False
 
-# Main loop
-def main():
+def watch_directory():
+    print(f"Watching directory: {SOURCE_DIR}")
     while True:
-        # List all files in the folder
-        files = [os.path.join(SOURCE_FOLDER, f) for f in os.listdir(SOURCE_FOLDER) if os.path.isfile(os.path.join(SOURCE_FOLDER, f))]
-        
-        # Process each file
-        for file in files:
-            if upload_file(file):  # If upload is successful
-                os.remove(file)   # Delete the file to avoid redundancy
-                print(f"Deleted: {os.path.basename(file)}")
-        
-        # Wait for 30 seconds before checking the folder again
-        time.sleep(30)
+        try:
+            files_to_upload = [f for f in os.listdir(SOURCE_DIR) if os.path.isfile(os.path.join(SOURCE_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            for file_name in files_to_upload:
+                image_path = os.path.join(SOURCE_DIR, file_name)
+                if time.time() - os.path.getmtime(image_path) >= 30:
+                    if upload_image(image_path):
+                        move(image_path, os.path.join(DEST_DIR, file_name))
+                        print(f"Moved file to uploaded folder: {file_name}")
+        except Exception as e:
+            print(f"Error in monitoring loop: {e}")
+        time.sleep(10)
 
 if __name__ == "__main__":
-    main()
+    watch_directory()
